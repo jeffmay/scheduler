@@ -1,4 +1,4 @@
-import { HashMap, ReadonlyDate } from "./hashable";
+import { HashMap, Hashable, ReadonlyDate } from "./hashable";
 import {
   DAY_IN_MILLIS,
   ScheduleOverrides,
@@ -257,7 +257,9 @@ function validateSchedule<V>(
   }
 }
 
-function pivotAll<K, V>(map: Iterable<readonly [K, V]>): HashMap<V, K[]> {
+function pivotAll<K, V extends Hashable<V>>(
+  map: Iterable<readonly [K, V]>
+): HashMap<V, K[]> {
   const result = new HashMap<V, K[]>();
   for (const [key, value] of map) {
     result.update(value, (keys) => {
@@ -281,7 +283,7 @@ function validateSortedDates<V>(
   expect(dates).toEqual(sortedDates);
 }
 
-function findDatesOutOfRange<V>(
+function findDatesOutOfRange<V extends Hashable<V>>(
   schedule: Iterable<readonly [ReadonlyDate, V]>,
   params: Pick<
     SchedulingParameters<unknown>,
@@ -303,7 +305,7 @@ function findDatesOutOfRange<V>(
   return datesOutOfRange;
 }
 
-function findUnmatchedOverrides<V>(
+function findUnmatchedOverrides<V extends Hashable<V>>(
   schedule: Iterable<readonly [ReadonlyDate, V]>,
   params: Pick<SchedulingParameters<V>, "overrides">
 ): HashMap<[ReadonlyDate, V], ReadonlyDate[]> {

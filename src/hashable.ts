@@ -6,15 +6,15 @@
  * An object is hashable if it has a valueOf(), toPrimitive(), or is an object with all hashable properties.
  */
 type HashableObject<V> =
-  | { valueOf(): number }
-  | { [Symbol.toPrimitive]: number }
+  | { valueOf(): number | string | boolean }
+  | { [Symbol.toPrimitive]: number | string | boolean }
   | {
-      readonly [P in keyof V]: Hashable<V[P]>;
+      readonly [P in keyof V]: Hashable<V[P]> | null | undefined;
     };
 
 type HashableTuple<V> = readonly [Hashable<V>, ...Hashable<V>[]];
 
-type Hashable<V> =
+export type Hashable<V> =
   | number
   | string
   | boolean
@@ -28,16 +28,47 @@ type Hashable<V> =
  * This does not work for `Date`s, so we need this special kind of primitive.
  */
 export type Hash<V> = string & {
-  readonly __value?: V; // used to make the type dependent on the type parameter
+  readonly __value: V; // used to make the type dependent on the type parameter
   readonly __hash: unique symbol; // used to make this nominally typed
 };
 
-// TODO: Use valueOf() where possible?
 /**
- * A stupid implementation of a hash function because JavaScript doesn't have a good definition of hash code or equality.
+ * Defines a hash function that converts the given argument into JSON, replacing
+ * objects with primitive values when [Symbol.toPrimitive] or valueOf() is defined.
  */
 export function Hash<V extends Hashable<V>>(value: V): Hash<V> {
-  return JSON.stringify(value) as Hash<V>;
+  function objectHash(o: unknown): string | undefined {
+    if (o != null && typeof o === "object") {
+      let hash: unknown | undefined;
+      if (
+        Symbol.toPrimitive in o &&
+        o[Symbol.toPrimitive] instanceof Function
+      ) {
+        hash = (o[Symbol.toPrimitive] as Function)();
+      }
+      if (!hash && typeof o["valueOf"] === "function") {
+        hash = o.valueOf();
+      }
+      switch (typeof hash) {
+        case "number":
+        case "boolean":
+          return "" + hash;
+        case "string":
+          return hash;
+        default:
+          return undefined;
+      }
+    }
+    return undefined;
+  }
+
+  const hash = JSON.stringify(
+    value,
+    function (this: V, _: string, v: unknown): unknown {
+      return objectHash(v) ?? v;
+    }
+  );
+  return hash as Hash<V>;
 }
 
 /**
@@ -58,7 +89,7 @@ type HashMapEntry<out K, out V> = {
  * // TODO: Find a way to work around the type system to use the underlying map operations instead of composing a Map.
  */
 export class HashMap<
-  in out K extends Hashable<K> = unknown,
+  in out K extends Hashable<unknown> = never,
   out V = never
 > extends Map<K, V> {
   /** Using a {@link Map} instead of an object to keep the insert order of entries */
@@ -77,19 +108,20 @@ export class HashMap<
   /**
    * Same as {@link set}, but returns the {@link HashMap} with more accurate types.
    */
-  updated<NK, NV>(key: NK, value: NV): HashMap<K | NK, V | NV> {
+  updated<NK extends Hashable<any>, NV>(
+    key: NK,
+    value: NV
+  ): HashMap<K | NK, V | NV> {
     const result = this as unknown as HashMap<K | NK, V | NV>;
     result.set(key, value);
     return result;
   }
 
-  /** @override */
-  [Symbol.iterator](): IterableIterator<[K, V]> {
+  override [Symbol.iterator](): IterableIterator<[K, V]> {
     return this.entries();
   }
 
-  /** @override */
-  forEach(
+  override forEach(
     callbackfn: (value: V, key: K, map: Map<K, V>) => void,
     thisArg?: any
   ): void {
@@ -98,30 +130,26 @@ export class HashMap<
     }
   }
 
-  /** @override */
-  get size(): number {
+  override get size(): number {
     return this.hashmap.size;
   }
 
-  /** @override */
-  clear(): void {
+  override clear(): void {
     this.hashmap.clear();
   }
 
-  /** @override */
-  delete(key: K): boolean {
+  override delete(key: K): boolean {
     return this.hashmap.delete(Hash(key));
   }
 
-  /** @override */
-  get(key: K): V | undefined {
+  override get(key: K): V | undefined {
     const entry = this.hashmap.get(Hash(key));
     return entry && entry.value;
   }
 
-  /** @override */
   update(key: K, fn: (value: V | undefined) => V | undefined): this {
-    const keyHash = Hash(key);
+    // Assume K is hashable here because calling this would not compile unless K is Hashable (and not never)
+    const keyHash = Hash(key) as Hash<K>;
     const entry = this.hashmap.get(keyHash);
     const result = fn(entry?.value);
     if (result === undefined) {
@@ -132,40 +160,34 @@ export class HashMap<
     return this;
   }
 
-  /** @override */
-  has(key: K): boolean {
+  override has(key: K): boolean {
     return this.hashmap.has(Hash(key));
   }
 
-  /** @override */
-  set(key: K, value: V): this {
+  override set(key: K, value: V): this {
     this.hashmap.set(Hash(key), { key, value });
     return this;
   }
 
-  /** @override */
-  *keys(): IterableIterator<K> {
+  override *keys(): IterableIterator<K> {
     for (const { key } of this.hashmap.values()) {
       yield key;
     }
   }
 
-  /** @override */
-  *values(): IterableIterator<V> {
+  override *values(): IterableIterator<V> {
     for (const { value } of this.hashmap.values()) {
       yield value;
     }
   }
 
-  /** @override */
-  *entries(): IterableIterator<[K, V]> {
+  override *entries(): IterableIterator<[K, V]> {
     for (const { key, value } of this.hashmap.values()) {
       yield [key, value];
     }
   }
 
-  /** @override */
-  get [Symbol.toStringTag](): string {
+  override get [Symbol.toStringTag](): string {
     let sep = ", ";
     let spacer = ", ";
     const padSize = spacer.length + sep.length;

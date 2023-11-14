@@ -1,3 +1,4 @@
+import type { Hashable } from "./hashable";
 import { ReadonlyDate, HashMap } from "./hashable";
 
 /**
@@ -12,7 +13,7 @@ import { ReadonlyDate, HashMap } from "./hashable";
  *
  * @throws an error if the schedule cannot be created given the parameters and values.
  */
-export function createSchedule<V>(
+export function createSchedule<V extends Hashable<{}>>(
   params: SchedulingParameters<V>
 ): HashMap<ReadonlyDate, V> {
   const { values, start, intervalDurationMs, overrides } = params;
@@ -76,7 +77,7 @@ export function createSchedule<V>(
       const endIdx = (curIndex + values.length - 1) % values.length;
       while (valIdx != endIdx && !valid) {
         valIdx = (valIdx + 1) % values.length;
-        value = values[valIdx];
+        value = values[valIdx]!; // TODO: This allows null / undefined values, but should it?
         valid = isValidPlacement(value, at, placementIndex, params);
       }
       // If the valIdx is the same as the curIndex, then we have tried all values and failed
@@ -86,8 +87,8 @@ export function createSchedule<V>(
         );
       }
       // Assign the slot and add the placement for the next iteration
-      slots[slotIdx] = value;
-      addPlacement(placementIndex, value, at);
+      slots[slotIdx] = value!;
+      addPlacement(placementIndex, value!, at);
       // Set the current index to the next value index and continue
       curIndex = valIdx;
     }
@@ -195,8 +196,8 @@ export type SchedulingParameters<out V> = Readonly<{
 
 // TODO: How do I return the most specific ShedulingParameters type?
 export function SchedulingParameters<V>(
-  params?: Pick<SchedulingParameters<unknown>, "values"> &
-    Partial<SchedulingParameters<V>>
+  params: Pick<SchedulingParameters<V>, "values"> &
+    Partial<SchedulingParameters<V>> = { values: [] }
 ): SchedulingParameters<V> {
   // Assign defaults and apply the given parameters over them
   return {
@@ -209,7 +210,7 @@ export function SchedulingParameters<V>(
   };
 }
 
-type PlacementIndex<V> = HashMap<V, ReadonlyDate[]>;
+type PlacementIndex<V extends Hashable<V>> = HashMap<V, ReadonlyDate[]>;
 
 // A helpful constant for the number of milliseconds in a day
 export const DAY_IN_MILLIS = 24 * 60 * 60 * 1000;
